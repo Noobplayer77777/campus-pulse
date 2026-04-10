@@ -1,13 +1,246 @@
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base Neo Brutalism Theme - CampusPulse Design System */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-background text-on-surface font-body antialiased;
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  code {
+    font-family: 'Space Grotesk', monospace;
+  }
+
+  h1 {
+    @apply text-5xl font-headline font-black mb-6 uppercase tracking-tighter;
+  }
+
+  h2 {
+    @apply text-4xl font-headline font-bold mb-4 uppercase;
+  }
+
+  h3 {
+    @apply text-3xl font-headline font-bold mb-3;
+  }
+
+  h4, h5, h6 {
+    @apply text-lg font-headline font-bold mb-2;
+  }
+
+  p {
+    @apply text-base font-body leading-relaxed mb-3;
+  }
+
+  a {
+    @apply text-primary hover:text-secondary transition-colors duration-200;
+  }
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* Layout and Components */
+@layer components {
+  .layout {
+    @apply flex flex-col min-h-screen bg-background;
+  }
+
+  .main-content {
+    @apply flex-1 p-6 md:p-12;
+  }
+
+  /* Navbar */
+  .navbar {
+    @apply bg-white border-b-4 border-black shadow-lg sticky top-0 z-50;
+  }
+
+  .navbar-container {
+    @apply max-w-7xl mx-auto px-6 py-4 flex justify-between items-center;
+  }
+
+  .navbar-brand h1 {
+    @apply text-2xl font-headline font-black text-black m-0 italic;
+  }
+
+  .navbar-menu {
+    @apply flex gap-4 items-center;
+  }
+
+  .user-info {
+    @apply text-on-surface text-sm font-label;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply px-6 py-3 font-headline font-black uppercase transition-all duration-200 cursor-pointer border-4 border-black;
+  }
+
+  .btn-primary {
+    @apply bg-primary-container text-black hover:-translate-y-1 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent text-black border-black hover:bg-primary-container;
+  }
+
+  .btn-danger {
+    @apply bg-error-container text-black hover:bg-error hover:border-error;
+  }
+
+  .btn-success {
+    @apply bg-secondary-container text-black hover:border-secondary;
+  }
+
+  .logout-btn {
+    @apply btn btn-danger;
+  }
+
+  /* Forms */
+  .form-group {
+    @apply mb-6;
+  }
+
+  .form-label {
+    @apply block mb-2 font-headline font-bold text-black uppercase text-sm;
+  }
+
+  .form-input,
+  .form-textarea,
+  .form-select {
+    @apply w-full px-4 py-3 bg-surface text-on-surface border-3 border-black transition-all duration-200;
+    @apply focus:border-primary focus:outline-none focus:shadow-[0_0_0_3px_rgba(106,91,0,0.1)];
+  }
+
+  .form-textarea {
+    @apply resize-none;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-surface-container border-4 border-black p-6 shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] transition-all duration-300;
+  }
+
+  .event-card {
+    @apply card;
+  }
+
+  /* Loading State */
+  .loading-container {
+    @apply flex justify-center items-center min-h-screen;
+  }
+
+  .loading-spinner {
+    @apply animate-spin w-12 h-12 border-4 border-surface border-t-primary-container;
+  }
+
+  /* Animations */
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slideInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+
+  .animate-slide-in-left {
+    animation: slideInLeft 0.4s ease-in-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.4s ease-in-out;
+  }
+
+  /* Notification/Toast */
+  .toast {
+    @apply fixed bottom-4 right-4 px-6 py-4 rounded font-semibold shadow-[4px_4px_0px_rgba(0,0,0,1)] animate-fade-in z-50;
+  }
+
+  .toast-success {
+    @apply bg-secondary-container text-black;
+  }
+
+  .toast-error {
+    @apply bg-error-container text-black;
+  }
+
+  .toast-info {
+    @apply bg-primary-container text-black;
+  }
+
+  .toast-warning {
+    @apply bg-orange-500 text-black;
+  }
+
+  /* Modal */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-40;
+  }
+
+  .modal {
+    @apply bg-surface border-4 border-black rounded p-8 max-w-md w-full mx-4 shadow-[8px_8px_0px_rgba(0,0,0,1)];
+  }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .main-content {
+      @apply p-4;
+    }
+
+    .navbar-container {
+      @apply flex-col gap-4;
+    }
+
+    h1 {
+      @apply text-2xl;
+    }
+
+    h2 {
+      @apply text-xl;
+    }
+  }
 }
+
+/* Utility Classes */
+.text-gradient {
+  background: linear-gradient(135deg, #ff006e, #00f5ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.smooth-scroll {
+  scroll-behavior: smooth;
+}
+

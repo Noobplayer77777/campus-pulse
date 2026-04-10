@@ -1,0 +1,60 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             request.auth.token.admin == true;
+    }
+
+    // User profile pictures
+    match /users/{userId}/profile/{file=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId &&
+                      request.resource.size < 5 * 1024 * 1024 && // 5MB limit
+                      request.resource.contentType.matches('image/.*');
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Event images
+    match /events/{eventId}/images/{file=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                      request.resource.size < 10 * 1024 * 1024 && // 10MB limit
+                      request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin();
+    }
+
+    // Club images
+    match /clubs/{clubId}/images/{file=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() &&
+                      request.resource.size < 10 * 1024 * 1024 && // 10MB limit
+                      request.resource.contentType.matches('image/.*');
+      allow delete: if isAdmin();
+    }
+
+    // Documents (certificates, attendance sheets)
+    match /documents/{userId}/{file=**} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAuthenticated() && request.auth.uid == userId &&
+                      request.resource.size < 25 * 1024 * 1024; // 25MB limit
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Public assets (icons, general images)
+    match /public/{file=**} {
+      allow read: if true;
+      allow write, delete: if isAdmin();
+    }
+
+    // Deny all other matches
+    match /{allPaths=**} {
+      allow read, write, delete: if false;
+    }
+  }
+}
