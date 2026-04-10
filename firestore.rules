@@ -59,7 +59,7 @@ service cloud.firestore {
                        (request.resource.data.clubId == request.auth.uid || isClubAdmin(request.resource.data.clubId)) &&
                        request.resource.data.keys().hasAll(['name', 'clubId', 'date', 'location']);
       allow update: if isAuthenticated() && 
-                       ((request.resource.data.keys().hasOnly(['registeredCount', 'updatedAt'])) ||
+                       ((request.writeFields.hasOnly(['registeredCount', 'updatedAt']) && request.resource.data.registeredCount >= 0) ||
                         (resource.data.clubId == request.auth.uid || isClubAdmin(resource.data.clubId) || isAdmin()));
       allow delete: if isAdmin() || 
                        (isAuthenticated() && resource.data.clubId == request.auth.uid);

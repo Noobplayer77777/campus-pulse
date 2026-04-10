@@ -11,7 +11,7 @@
   body {
     @apply bg-background text-on-surface font-body antialiased;
     margin: 0;
-    font-size: 1rem;
+    font-size: clamp(14px, 2vw, 16px);
   }
 
   code {
@@ -19,15 +19,19 @@
   }
 
   h1 {
-    @apply text-5xl font-headline font-black mb-6 uppercase tracking-tighter;
+    @apply font-headline font-black mb-6 uppercase tracking-tighter;
+    font-size: clamp(28px, 8vw, 64px);
+    line-height: 1.1;
   }
 
   h2 {
-    @apply text-4xl font-headline font-bold mb-4 uppercase;
+    @apply font-headline font-bold mb-4 uppercase;
+    font-size: clamp(24px, 6vw, 48px);
   }
 
   h3 {
-    @apply text-3xl font-headline font-bold mb-3;
+    @apply font-headline font-bold mb-3;
+    font-size: clamp(20px, 5vw, 36px);
   }
 
   h4, h5, h6 {
@@ -36,6 +40,7 @@
 
   p {
     @apply text-base font-body leading-relaxed mb-3;
+    font-size: clamp(14px, 2vw, 18px);
   }
 
   a {
@@ -50,7 +55,14 @@
   }
 
   .main-content {
-    @apply flex-1 p-6 md:p-12;
+    @apply flex-1 p-6 md:p-12 mt-20 md:mt-28;
+  }
+
+  /* Responsive main content */
+  @media (max-width: 640px) {
+    .main-content {
+      @apply p-4 mt-16;
+    }
   }
 
   /* Navbar */
@@ -213,12 +225,8 @@
     @apply bg-surface border-4 border-black rounded p-8 max-w-md w-full mx-4 shadow-[8px_8px_0px_rgba(0,0,0,1)];
   }
 
-  /* Responsive */
+  /* Responsive adjustments */
   @media (max-width: 640px) {
-    .main-content {
-      @apply p-4;
-    }
-
     .navbar-container {
       @apply flex-col gap-4;
     }

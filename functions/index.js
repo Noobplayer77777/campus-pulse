@@ -8,150 +8,47 @@ const db = admin.firestore();
 const logger = functions.logger;
 
 /**
- * Cloud Function: Triggered when a new registration document is CREATED
+ * DISABLED: Cloud Function was conflicting with frontend registration logic
  * 
- * Purpose: Automatically decrease the event's capacity when a user registers
+ * NOTE: Registration count is now handled directly by the frontend via Firestore rules
+ * The frontend code increments 'registeredCount' when a user registers.
+ * This Cloud Function was incorrectly trying to decrement 'capacity' which is the max size.
  * 
- * Firestore Path: events/{eventId}/registrations/{registrationId}
- * 
- * Logic:
- * 1. Fetch the event document
- * 2. Use Firestore transaction to atomically:
- *    - Check if capacity > 0 (prevent overbooking)
- *    - Decrease capacity by 1
- *    - Ensure capacity never goes below 0
- * 3. Handle errors and log the operation
+ * The new flow (enabled in Firestore rules):
+ * 1. User clicks register in StudentDashboard
+ * 2. Frontend creates registration doc in /events/{eventId}/registrations/{userId}
+ * 3. Frontend then increments event.registeredCount (allowed by Firestore rules)
+ * 4. Available seats = capacity - registeredCount
  */
+// DISABLED - Not being used anymore
+/*
 exports.onRegistrationCreated = functions.firestore
   .document('events/{eventId}/registrations/{registrationId}')
   .onCreate(async (snap, context) => {
-    const { eventId, registrationId } = context.params;
-    const registrationData = snap.data();
-
-    logger.info(`New registration created: ${registrationId} for event: ${eventId}`, {
-      timestamp: new Date().toISOString(),
-      registrationData,
-    });
-
-    try {
-      // Use Firestore transaction for atomic capacity update
-      await db.runTransaction(async (transaction) => {
-        const eventRef = db.collection('events').doc(eventId);
-        const eventDoc = await transaction.get(eventRef);
-
-        // Validate event exists
-        if (!eventDoc.exists) {
-          throw new Error(`Event document not found: ${eventId}`);
-        }
-
-        const currentCapacity = eventDoc.data().capacity ?? 0;
-
-        // Prevent overbooking: Check if capacity is already at 0
-        if (currentCapacity <= 0) {
-          throw new Error(
-            `Overbooking prevented: Event ${eventId} has no available capacity`
-          );
-        }
-
-        // Calculate new capacity (ensure it never goes below 0)
-        const newCapacity = Math.max(0, currentCapacity - 1);
-
-        // Atomically update the capacity field
-        transaction.update(eventRef, {
-          capacity: newCapacity,
-          lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        logger.info(`Capacity updated for event ${eventId}`, {
-          previousCapacity: currentCapacity,
-          newCapacity: newCapacity,
-          registrationId: registrationId,
-        });
-      });
-    } catch (error) {
-      logger.error(`Error processing registration creation for ${eventId}:`, {
-        registrationId: registrationId,
-        errorMessage: error.message,
-        errorCode: error.code,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Re-throw the error so Firebase knows the function failed
-      throw error;
-    }
+    // OLD CODE DISABLED
   });
+*/
 
 /**
- * Cloud Function: Triggered when a registration document is DELETED
+ * DISABLED: Cloud Function was conflicting with frontend registration logic
  * 
- * Purpose: Automatically increase the event's capacity when a registration is cancelled
+ * NOTE: Registration count is now handled directly by the frontend via Firestore rules
+ * This Cloud Function was incorrectly trying to increment 'capacity' (max size) instead of
+ * decrementing 'registeredCount'.
  * 
- * Firestore Path: events/{eventId}/registrations/{registrationId}
- * 
- * Logic:
- * 1. Fetch the event document
- * 2. Use Firestore transaction to atomically:
- *    - Increase capacity by 1
- *    - Ensure capacity doesn't exceed original event capacity
- * 3. Handle errors and log the operation
+ * The new flow (enabled in Firestore rules):
+ * 1. User clicks unregister in StudentDashboard
+ * 2. Frontend deletes registration doc from /events/{eventId}/registrations/{userId}
+ * 3. Frontend then decrements event.registeredCount (allowed by Firestore rules)
  */
+// DISABLED - Not being used anymore
+/*
 exports.onRegistrationDeleted = functions.firestore
   .document('events/{eventId}/registrations/{registrationId}')
   .onDelete(async (snap, context) => {
-    const { eventId, registrationId } = context.params;
-    const registrationData = snap.data();
-
-    logger.info(`Registration deleted: ${registrationId} for event: ${eventId}`, {
-      timestamp: new Date().toISOString(),
-      registrationData,
-    });
-
-    try {
-      // Use Firestore transaction for atomic capacity update
-      await db.runTransaction(async (transaction) => {
-        const eventRef = db.collection('events').doc(eventId);
-        const eventDoc = await transaction.get(eventRef);
-
-        // Validate event exists
-        if (!eventDoc.exists) {
-          throw new Error(`Event document not found: ${eventId}`);
-        }
-
-        const eventData = eventDoc.data();
-        const currentCapacity = eventData.capacity ?? 0;
-        const originalCapacity = eventData.originalCapacity ?? eventData.capacity ?? 0;
-
-        // Increase capacity by 1, but don't exceed the original capacity
-        const newCapacity = Math.min(
-          currentCapacity + 1,
-          originalCapacity
-        );
-
-        // Atomically update the capacity field
-        transaction.update(eventRef, {
-          capacity: newCapacity,
-          lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        logger.info(`Capacity increased for event ${eventId}`, {
-          previousCapacity: currentCapacity,
-          newCapacity: newCapacity,
-          originalCapacity: originalCapacity,
-          registrationId: registrationId,
-        });
-      });
-    } catch (error) {
-      logger.error(`Error processing registration deletion for ${eventId}:`, {
-        registrationId: registrationId,
-        errorMessage: error.message,
-        errorCode: error.code,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Re-throw the error so Firebase knows the function failed
-      throw error;
-    }
+    // OLD CODE DISABLED
   });
+*/
 
 /**
  * Optional: Callable function to check event availability
@@ -200,3 +97,72 @@ exports.checkEventAvailability = functions.https.onCall(
     }
   }
 );
+
+/**
+ * Scheduled Cloud Function to delete expired events
+ * 
+ * Purpose: Automatically delete events from Firebase once the event time is done
+ * Runs: Every hour (can be adjusted via the schedule parameter)
+ * 
+ * Logic:
+ * 1. Query all events where date is before today
+ * 2. For each expired event, delete all associated registrations
+ * 3. Delete the event document itself
+ */
+exports.deleteExpiredEvents = functions.pubsub
+  .schedule('every 1 hours')
+  .onRun(async (context) => {
+    try {
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date().toISOString().split('T')[0];
+      
+      logger.info(`Running deleteExpiredEvents function at ${new Date().toISOString()}`);
+      
+      // Query for all events with date before today
+      const expiredEventsSnapshot = await db
+        .collection('events')
+        .where('date', '<', today)
+        .get();
+
+      if (expiredEventsSnapshot.empty) {
+        logger.info('No expired events found to delete');
+        return null;
+      }
+
+      logger.info(`Found ${expiredEventsSnapshot.size} expired events to delete`);
+
+      // Process each expired event
+      const deletePromises = expiredEventsSnapshot.docs.map(async (eventDoc) => {
+        const eventId = eventDoc.id;
+        
+        try {
+          // Delete all registrations for this event
+          const registrationsSnapshot = await db
+            .collection('events')
+            .doc(eventId)
+            .collection('registrations')
+            .get();
+
+          const registrationDeletePromises = registrationsSnapshot.docs.map((regDoc) =>
+            regDoc.ref.delete()
+          );
+
+          await Promise.all(registrationDeletePromises);
+          logger.info(`Deleted ${registrationsSnapshot.size} registrations for event ${eventId}`);
+
+          // Delete the event document
+          await eventDoc.ref.delete();
+          logger.info(`Deleted expired event: ${eventId}`);
+        } catch (error) {
+          logger.error(`Error deleting expired event ${eventId}:`, error);
+        }
+      });
+
+      await Promise.all(deletePromises);
+      logger.info('Finished deleteExpiredEvents function');
+      return null;
+    } catch (error) {
+      logger.error('Error in deleteExpiredEvents function:', error);
+      return null;
+    }
+  });

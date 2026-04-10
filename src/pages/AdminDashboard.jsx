@@ -3,6 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useEvents } from '../hooks/useEvents';
 import { useUI } from '../hooks/useUI';
 import { EVENT_STATUS } from '../utils/constants';
+import { deleteExpiredEvents } from '../services/expiredEventsService';
 import Calendar from '../components/Calendar';
 
 export default function AdminDashboard() {
@@ -12,6 +13,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('approvals');
   const [rejectReason, setRejectReason] = useState('');
   const [rejectingEventId, setRejectingEventId] = useState(null);
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
 
   // Fetch events on component mount
   useEffect(() => {
@@ -63,6 +65,30 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleCleanupExpiredEvents = async () => {
+    try {
+      setIsCleaningUp(true);
+      const result = await deleteExpiredEvents();
+      
+      if (result.deletedCount > 0) {
+        showToast(`🗑️ Deleted ${result.deletedCount} expired event(s)`, 'success');
+        // Refresh events after cleanup
+        await fetchEvents();
+      } else {
+        showToast('✓ No expired events found', 'info');
+      }
+      
+      if (result.errors.length > 0) {
+        showToast(`⚠️ ${result.errors.length} error(s) during cleanup`, 'warning');
+      }
+    } catch (error) {
+      console.error('Error cleaning up expired events:', error);
+      showToast(error.message || '❌ Failed to cleanup expired events', 'error');
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
+
   // Neo-brutalism Stat Card
   const StatCard = ({ label, value, icon, bgColor }) => (
     <div className={`${bgColor} border-4 border-black p-8 shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] transition-all`}>
@@ -80,11 +106,20 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-background">
       {/* Header - Neo-brutalism */}
       <div className="bg-tertiary-container border-b-4 border-black px-6 py-8">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="font-headline font-black text-6xl uppercase text-black mb-2 italic">
-            🛡️ Admin Control
-          </h1>
-          <p className="font-body text-xl text-black">Review, Approve & Keep the Pulse Beating</p>
+        <div className="max-w-7xl mx-auto flex justify-between items-start">
+          <div>
+            <h1 className="font-headline font-black text-6xl uppercase text-black mb-2 italic">
+              🛡️ Admin Control
+            </h1>
+            <p className="font-body text-xl text-black">Review, Approve & Keep the Pulse Beating</p>
+          </div>
+          <button
+            onClick={handleCleanupExpiredEvents}
+            disabled={isCleaningUp}
+            className="bg-red-500 text-white px-6 py-3 font-headline font-bold text-sm border-2 border-black neo-shadow-lg hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {isCleaningUp ? '⏳ Cleaning...' : '🗑️ Cleanup Expired'}
+          </button>
         </div>
       </div>
 

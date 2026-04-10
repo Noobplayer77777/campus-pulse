@@ -279,7 +279,7 @@ export default function ClubDashboard() {
       <div className="bg-secondary-container border-b-4 border-black px-6 py-8">
         <div className="max-w-7xl mx-auto">
           <h1 className="font-headline font-black text-6xl uppercase text-black mb-2 italic">
-            � Club HQ
+            👥 Club HQ
           </h1>
           <p className="font-body text-xl text-black">Build, Create, Engage. Design the events your club dreams of.</p>
         </div>
