@@ -384,7 +384,7 @@ Contributions are welcome! Please follow these steps:
 
 ## 📝 License
 
-This project is private and owned by the development team.
+This project is private and owned by me.
 
 ## 🆘 Support
 
@@ -395,7 +395,7 @@ For issues, questions, or suggestions:
 
 ## 👥 Project Team
 
-Campus Pulse is developed and maintained by the campus event management team.
+Campus Pulse is developed and maintained by me OFC.
 
 ---
 
