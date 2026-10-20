@@ -126,6 +126,7 @@ export async function createEvent(eventData) {
       image,
       clubId,
       capacity,
+      difficulty = 'beginner',
       tags = [],
     } = eventData;
 
@@ -173,6 +174,7 @@ export async function createEvent(eventData) {
       image: image || '',
       clubId,
       capacity: capacity || 50,
+      difficulty,
       registeredCount: 0,
       status: EVENT_STATUS.PENDING, // Start as pending, requires admin approval
       tags,

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useEvents } from '../hooks/useEvents';
 import { useUI } from '../hooks/useUI';
-import { EVENT_STATUS } from '../utils/constants';
+import { EVENT_STATUS, DIFFICULTY_LEVELS } from '../utils/constants';
 import Calendar from '../components/Calendar';
 
 export default function ClubDashboard() {
@@ -21,6 +21,7 @@ export default function ClubDashboard() {
     capacity: '50',
     image: null,
     imagePreview: null,
+    difficulty: 'beginner',
   });
   const [formErrors, setFormErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -206,6 +207,7 @@ export default function ClubDashboard() {
         image: imageName, // Store only filename reference
         clubId: user.uid,
         capacity: parseInt(formData.capacity),
+        difficulty: formData.difficulty,
         status: EVENT_STATUS.PENDING,
         registeredCount: 0,
       });
@@ -223,6 +225,7 @@ export default function ClubDashboard() {
           capacity: '50',
           image: null,
           imagePreview: null,
+          difficulty: 'beginner',
         });
         setFormErrors({});
       } else {
@@ -359,6 +362,22 @@ export default function ClubDashboard() {
                   >
                     <option value="solo">👤 Solo Event</option>
                     <option value="team">👥 Team Event</option>
+                  </select>
+                </div>
+
+                {/* Difficulty Level */}
+                <div>
+                  <label className="block font-label font-black text-sm uppercase text-black mb-2">Difficulty Level *</label>
+                  <select
+                    name="difficulty"
+                    value={formData.difficulty}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 border-3 border-black focus:border-primary focus:outline-none bg-white font-body"
+                  >
+                    <option value={DIFFICULTY_LEVELS.BEGINNER}>🟢 Beginner</option>
+                    <option value={DIFFICULTY_LEVELS.INTERMEDIATE}>🟡 Intermediate</option>
+                    <option value={DIFFICULTY_LEVELS.ADVANCED}>🔴 Advanced</option>
+                    <option value={DIFFICULTY_LEVELS.EXPERT}>⚫ Expert</option>
                   </select>
                 </div>
 
@@ -550,6 +569,14 @@ export default function ClubDashboard() {
                         <h3 className="font-headline font-black text-2xl uppercase text-black">{event.name}</h3>
                         <span className={`px-4 py-2 border-3 border-black font-label font-black text-sm uppercase ${getStatusClass(event.status)}`}>
                           {event.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="inline-block px-3 py-1 border-2 border-black font-label font-bold text-xs uppercase bg-primary-container">
+                          {event.difficulty === DIFFICULTY_LEVELS.BEGINNER && '🟢 Beginner'}
+                          {event.difficulty === DIFFICULTY_LEVELS.INTERMEDIATE && '🟡 Intermediate'}
+                          {event.difficulty === DIFFICULTY_LEVELS.ADVANCED && '🔴 Advanced'}
+                          {event.difficulty === DIFFICULTY_LEVELS.EXPERT && '⚫ Expert'}
                         </span>
                       </div>
                       <p className="font-body text-sm text-on-surface">📍 {event.location}</p>

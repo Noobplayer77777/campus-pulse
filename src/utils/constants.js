@@ -11,6 +11,14 @@ export const EVENT_TYPES = {
   TEAM: 'team',
 };
 
+// Event difficulty levels
+export const DIFFICULTY_LEVELS = {
+  BEGINNER: 'beginner',
+  INTERMEDIATE: 'intermediate',
+  ADVANCED: 'advanced',
+  EXPERT: 'expert',
+};
+
 // Event status
 export const EVENT_STATUS = {
   PENDING: 'pending',
