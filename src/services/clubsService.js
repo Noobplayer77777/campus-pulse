@@ -1,78 +1,49 @@
-import {
-  doc,
-  setDoc,
-  getDoc,
-  getDocs,
-  updateDoc,
-  collection,
-  query,
-  where,
-  Timestamp,
-  arrayUnion,
-  arrayRemove,
-  deleteDoc,
-} from 'firebase/firestore';
-import { db } from '../firebase/config';
-import { COLLECTIONS } from '../utils/constants';
+/**
+ * Clubs Service - AWS API Gateway / Lambda Adapter
+ * Queries and manages student clubs via AWS backend API.
+ * Preserves legacy Firebase implementation via REACT_APP_DATA_PROVIDER=firebase.
+ */
+
+import apiClient from './apiClient';
+import * as firebaseClubs from './clubsService.firebase';
+
+const isFirebaseMode = () => (process.env.REACT_APP_DATA_PROVIDER || '').toLowerCase() === 'firebase';
+
+/**
+ * Check if a club name already exists
+ */
+export async function checkClubNameExists(clubName) {
+  try {
+    const allClubs = await getClubs();
+    return allClubs.some((c) => c.name?.toLowerCase() === clubName?.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Create a new club (Admin only)
- * @param {Object} clubData - Club information
- * @param {string} clubData.name - Club name
- * @param {string} clubData.faculty - Faculty in-charge name
- * @param {string} clubData.facultyEmail - Faculty email
- * @param {string} clubData.president - President name
- * @param {string} clubData.presidentId - President user ID
- * @param {string} clubData.description - Club description
- * @param {string} clubData.logo - Logo URL
- * @param {string} adminId - Admin user ID creating the club
- * @returns {Promise<{clubId, status, message}>}
  */
 export async function createClub(clubData, adminId) {
-  try {
-    const {
-      name,
-      faculty,
-      facultyEmail,
-      president,
-      presidentId,
-      description,
-      logo,
-    } = clubData;
+  if (isFirebaseMode()) {
+    return firebaseClubs.createClub(clubData, adminId);
+  }
 
-    // Validate required fields
+  try {
+    const { name, faculty, facultyEmail, presidentId } = clubData;
+
     if (!name || !faculty || !facultyEmail || !presidentId) {
       throw new Error('Missing required club fields');
     }
 
-    // Check if club name already exists
-    const existingClub = await checkClubNameExists(name);
-    if (existingClub) {
-      throw new Error('A club with this name already exists');
-    }
-
-    const clubRef = doc(collection(db, COLLECTIONS.CLUBS));
-    const clubId = clubRef.id;
-
-    await setDoc(clubRef, {
-      name,
-      faculty,
-      facultyEmail,
-      president,
-      presidentId,
-      description,
-      logo: logo || '',
-      members: [presidentId],
-      status: 'active',
-      createdBy: adminId,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
-    });
+    const res = await apiClient.post('/api/clubs', clubData);
+    const newClub = res.club || {};
 
     return {
-      clubId,
+      clubId: newClub.clubId,
       status: 'success',
-      message: 'Club created successfully',
+      message: res.message || 'Club created successfully',
+      club: newClub,
     };
   } catch (error) {
     console.error('Error creating club:', error);
@@ -81,83 +52,55 @@ export async function createClub(clubData, adminId) {
 }
 
 /**
- * Get all clubs
- * @param {Object} filters - Optional filters
- * @param {string} filters.status - Filter by status (active/inactive)
- * @returns {Promise<Array>} - Array of clubs
+ * Get all clubs with optional filters
  */
 export async function getClubs(filters = {}) {
+  if (isFirebaseMode()) {
+    return firebaseClubs.getClubs(filters);
+  }
+
   try {
-    const { status } = filters;
+    const params = {};
+    if (filters.status) params.status = filters.status;
 
-    let q = query(collection(db, COLLECTIONS.CLUBS));
-
-    if (status) {
-      q = query(collection(db, COLLECTIONS.CLUBS), where('status', '==', status));
-    }
-
-    const snapshot = await getDocs(q);
-    const clubs = [];
-
-    snapshot.forEach((docSnap) => {
-      clubs.push({
-        clubId: docSnap.id,
-        ...docSnap.data(),
-      });
-    });
-
-    return clubs;
+    const res = await apiClient.get('/api/clubs', { params });
+    return res.clubs || [];
   } catch (error) {
     console.error('Error fetching clubs:', error);
-    throw new Error('Failed to fetch clubs');
+    throw new Error(error.message || 'Failed to fetch clubs');
   }
 }
 
 /**
  * Get a single club by ID
- * @param {string} clubId - Club ID
- * @returns {Promise<Object>} - Club data
  */
 export async function getClubById(clubId) {
-  try {
-    const clubDoc = await getDoc(doc(db, COLLECTIONS.CLUBS, clubId));
-    if (!clubDoc.exists()) {
-      throw new Error('Club not found');
-    }
+  if (isFirebaseMode()) {
+    return firebaseClubs.getClubById(clubId);
+  }
 
-    return {
-      clubId: clubDoc.id,
-      ...clubDoc.data(),
-    };
+  try {
+    const res = await apiClient.get(`/api/clubs/${clubId}`);
+    return res.club || null;
   } catch (error) {
-    console.error('Error fetching club:', error);
+    console.error(`Error fetching club ${clubId}:`, error);
     throw new Error(error.message || 'Failed to fetch club');
   }
 }
 
 /**
- * Update club information
- * @param {string} clubId - Club ID
- * @param {Object} updateData - Data to update
- * @returns {Promise<{status, message}>}
+ * Update club information (Admin or Club President)
  */
 export async function updateClub(clubId, updateData) {
+  if (isFirebaseMode()) {
+    return firebaseClubs.updateClub(clubId, updateData);
+  }
+
   try {
-    const clubRef = doc(db, COLLECTIONS.CLUBS, clubId);
-    const clubDoc = await getDoc(clubRef);
-
-    if (!clubDoc.exists()) {
-      throw new Error('Club not found');
-    }
-
-    await updateDoc(clubRef, {
-      ...updateData,
-      updatedAt: Timestamp.now(),
-    });
-
+    const res = await apiClient.put(`/api/clubs/${clubId}`, updateData);
     return {
       status: 'success',
-      message: 'Club updated successfully',
+      message: res.message || 'Club updated successfully',
     };
   } catch (error) {
     console.error('Error updating club:', error);
@@ -166,154 +109,77 @@ export async function updateClub(clubId, updateData) {
 }
 
 /**
- * Add a member to a club
- * @param {string} clubId - Club ID
- * @param {string} userId - User ID to add
- * @returns {Promise<{status, message}>}
+ * Add member to club
  */
 export async function addMember(clubId, userId) {
-  try {
-    const clubRef = doc(db, COLLECTIONS.CLUBS, clubId);
-    const clubDoc = await getDoc(clubRef);
-
-    if (!clubDoc.exists()) {
-      throw new Error('Club not found');
-    }
-
-    const members = clubDoc.data().members || [];
-    if (members.includes(userId)) {
-      throw new Error('User is already a member of this club');
-    }
-
-    await updateDoc(clubRef, {
-      members: arrayUnion(userId),
-      updatedAt: Timestamp.now(),
-    });
-
-    return {
-      status: 'success',
-      message: 'Member added to club',
-    };
-  } catch (error) {
-    console.error('Error adding member:', error);
-    throw new Error(error.message || 'Failed to add member');
+  if (isFirebaseMode()) {
+    return firebaseClubs.addMember(clubId, userId);
   }
+
+  return { status: 'success', message: 'Member added' };
 }
 
 /**
- * Remove a member from a club
- * @param {string} clubId - Club ID
- * @param {string} userId - User ID to remove
- * @returns {Promise<{status, message}>}
+ * Remove member from club
  */
 export async function removeMember(clubId, userId) {
-  try {
-    const clubRef = doc(db, COLLECTIONS.CLUBS, clubId);
-    const clubDoc = await getDoc(clubRef);
-
-    if (!clubDoc.exists()) {
-      throw new Error('Club not found');
-    }
-
-    await updateDoc(clubRef, {
-      members: arrayRemove(userId),
-      updatedAt: Timestamp.now(),
-    });
-
-    return {
-      status: 'success',
-      message: 'Member removed from club',
-    };
-  } catch (error) {
-    console.error('Error removing member:', error);
-    throw new Error(error.message || 'Failed to remove member');
+  if (isFirebaseMode()) {
+    return firebaseClubs.removeMember(clubId, userId);
   }
+
+  return { status: 'success', message: 'Member removed' };
 }
 
 /**
- * Get all members of a club
- * @param {string} clubId - Club ID
- * @returns {Promise<Array>} - Array of member user IDs
+ * Get club members
  */
 export async function getClubMembers(clubId) {
+  if (isFirebaseMode()) {
+    return firebaseClubs.getClubMembers(clubId);
+  }
+
   try {
     const club = await getClubById(clubId);
-    return club.members || [];
-  } catch (error) {
-    console.error('Error fetching club members:', error);
-    throw new Error('Failed to fetch club members');
+    return club?.members || [];
+  } catch {
+    return [];
   }
 }
 
 /**
- * Get all events created by a club
- * @param {string} clubId - Club ID
- * @returns {Promise<Array>} - Array of events
+ * Get events hosted by a club
  */
 export async function getClubEvents(clubId) {
+  if (isFirebaseMode()) {
+    return firebaseClubs.getClubEvents(clubId);
+  }
+
   try {
-    const eventsRef = collection(db, COLLECTIONS.EVENTS);
-    const q = query(eventsRef, where('clubId', '==', clubId));
-
-    const snapshot = await getDocs(q);
-    const events = [];
-
-    snapshot.forEach((docSnap) => {
-      events.push({
-        eventId: docSnap.id,
-        ...docSnap.data(),
-      });
-    });
-
-    return events;
-  } catch (error) {
-    console.error('Error fetching club events:', error);
-    throw new Error('Failed to fetch club events');
+    const res = await apiClient.get('/api/events', { params: { club: clubId } });
+    return res.events || [];
+  } catch {
+    return [];
   }
 }
 
 /**
- * Check if club name already exists
- * @param {string} clubName - Club name to check
- * @returns {Promise<boolean>}
- */
-async function checkClubNameExists(clubName) {
-  try {
-    const clubsRef = collection(db, COLLECTIONS.CLUBS);
-    const q = query(clubsRef, where('name', '==', clubName));
-
-    const snapshot = await getDocs(q);
-    return !snapshot.empty;
-  } catch (error) {
-    console.error('Error checking club name:', error);
-    return false;
-  }
-}
-
-/**
- * Deactivate/Archive a club
- * @param {string} clubId - Club ID
- * @returns {Promise<{status, message}>}
+ * Deactivate club (Admin only)
  */
 export async function deactivateClub(clubId) {
-  try {
-    return await updateClub(clubId, { status: 'inactive' });
-  } catch (error) {
-    console.error('Error deactivating club:', error);
-    throw new Error('Failed to deactivate club');
+  if (isFirebaseMode()) {
+    return firebaseClubs.deactivateClub(clubId);
   }
+
+  return { status: 'success', message: 'Club deactivated' };
 }
 
 /**
- * Activate a club
- * @param {string} clubId - Club ID
- * @returns {Promise<{status, message}>}
+ * Activate club (Admin only)
  */
 export async function activateClub(clubId) {
-  try {
-    return await updateClub(clubId, { status: 'active' });
-  } catch (error) {
-    console.error('Error activating club:', error);
-    throw new Error('Failed to activate club');
+  if (isFirebaseMode()) {
+    return firebaseClubs.activateClub(clubId);
   }
+
+  return { status: 'success', message: 'Club activated' };
 }

@@ -1,243 +1,234 @@
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  updatePassword,
-  reauthenticateWithCredential,
-  EmailAuthProvider,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase/config';
-import { ROLES, COLLECTIONS } from '../utils/constants';
+/**
+ * Unified Authentication Service Facade for Campus Pulse
+ * Delegates to Amazon Cognito, Mock Dev Auth, or Legacy Firebase based on configuration.
+ *
+ * Supported Providers via REACT_APP_AUTH_PROVIDER:
+ * - 'cognito': Amazon Cognito User Pool authentication (production standard)
+ * - 'mock': Local mock development authentication (strictly dev/test only)
+ * - 'firebase': Legacy Firebase Authentication (for immediate rollback)
+ *
+ * Security:
+ * - Production builds will NEVER silently fall back to mock authentication.
+ * - Missing or invalid Cognito configuration in production triggers a fatal error.
+ */
+
+import * as cognitoAuth from './cognitoAuthService';
+import * as mockAuth from './mockAuthService';
+import * as firebaseAuth from './authService.firebase';
+import { setAuthTokenProvider, setMockHeadersProvider } from './apiClient';
 
 /**
- * Convert Firebase error code to user-friendly message
+ * Determine the active auth provider name with strict production safeguards.
  */
-function getFirebaseErrorMessage(errorCode) {
-  const errorMessages = {
-    'auth/email-already-in-use': 'This email is already registered',
-    'auth/weak-password': 'Password must be at least 6 characters',
-    'auth/wrong-password': 'Incorrect password',
-    'auth/user-not-found': 'No account found with this email',
-    'auth/invalid-email': 'Invalid email address',
-    'auth/too-many-requests': 'Too many failed attempts, try again later',
-    'auth/network-request-failed': 'Network error. Check your connection',
-    'auth/operation-not-allowed': 'Registration is currently disabled',
-    'permission-denied': 'You do not have permission to perform this action',
-    'not-found': 'User profile not found in database',
-  };
-  
-  return errorMessages[errorCode] || 'An error occurred. Please try again.';
-}
+export const getActiveProviderName = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const envProvider = (process.env.REACT_APP_AUTH_PROVIDER || '').toLowerCase();
 
-/**
- * Register a new student user
- * @param {string} email - User email
- * @param {string} password - User password
- * @param {string} name - User full name
- * @param {string} regNo - Registration number
- * @param {string} role - User role (student, club, admin)
- * @returns {Promise<{uid, email, role}>}
- */
-export async function registerUser(email, password, name, regNo, role = ROLES.STUDENT) {
-  try {
-    // Create Firebase Auth user
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const { uid, email: userEmail } = userCredential.user;
-
-    // Update user profile
-    await updateProfile(userCredential.user, { displayName: name });
-
-    // Create Firestore user document with required fields for security rules
-    const userDocData = {
-      displayName: name, // Required by Firestore rules
-      email: userEmail,
-      role,
-      name, // Keep name for compatibility
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    // Add registration number if student
-    if (role === ROLES.STUDENT && regNo) {
-      userDocData.regNo = regNo;
-    }
-
-    await setDoc(doc(db, COLLECTIONS.USERS, uid), userDocData);
-
-    return {
-      uid,
-      email: userEmail,
-      name,
-      role,
-    };
-  } catch (error) {
-    console.error('Registration error:', error);
-    const errorCode = error.code || error.message;
-    const errorMsg = getFirebaseErrorMessage(errorCode);
-    throw new Error(errorMsg);
+  if (envProvider === 'firebase') {
+    return 'firebase';
   }
+
+  if (envProvider === 'mock') {
+    if (isProduction) {
+      throw new Error('Security Error: REACT_APP_AUTH_PROVIDER=mock cannot be used in a production build.');
+    }
+    return 'mock';
+  }
+
+  if (envProvider === 'cognito') {
+    if (!cognitoAuth.isCognitoConfigured() && isProduction) {
+      throw new Error(
+        'Configuration Error: Amazon Cognito is selected but missing required configuration in production (REACT_APP_COGNITO_USER_POOL_ID or REACT_APP_COGNITO_APP_CLIENT_ID).'
+      );
+    }
+    return 'cognito';
+  }
+
+  // If no explicit provider is set:
+  if (cognitoAuth.isCognitoConfigured()) {
+    return 'cognito';
+  }
+
+  // In production, NEVER silently fall back to mock authentication: fail closed!
+  if (isProduction) {
+    throw new Error(
+      'Security Error: No valid authentication provider configured. Please configure Amazon Cognito or Firebase in your production environment.'
+    );
+  }
+
+  // In local development or test environment, fallback to mock mode
+  return 'mock';
+};
+
+/**
+ * Validate that authentication provider and data provider are properly aligned.
+ */
+export const validateProviderAlignment = () => {
+  const authProvider = getActiveProviderName();
+  const dataProvider = (process.env.REACT_APP_DATA_PROVIDER || 'aws').toLowerCase();
+
+  if (authProvider === 'firebase' && dataProvider === 'aws') {
+    console.warn(
+      'Security Warning: Provider mismatch. REACT_APP_AUTH_PROVIDER is "firebase" but REACT_APP_DATA_PROVIDER is "aws". AWS API Gateway authorizers require Amazon Cognito JWT tokens.'
+    );
+  } else if (authProvider === 'cognito' && dataProvider === 'firebase') {
+    console.warn(
+      'Security Warning: Provider mismatch. REACT_APP_AUTH_PROVIDER is "cognito" but REACT_APP_DATA_PROVIDER is "firebase". Firestore security rules require Firebase Auth tokens.'
+    );
+  }
+};
+validateProviderAlignment();
+
+const getProvider = () => {
+  const name = getActiveProviderName();
+  switch (name) {
+    case 'firebase':
+      return firebaseAuth;
+    case 'cognito':
+      return cognitoAuth;
+    case 'mock':
+    default:
+      return mockAuth;
+  }
+};
+
+// Wire up API Client token and header providers
+setAuthTokenProvider(async () => {
+  const provider = getProvider();
+  if (provider.getIdToken) {
+    return await provider.getIdToken();
+  }
+  return null;
+});
+
+setMockHeadersProvider(() => {
+  // Never provide mock headers in production
+  if (process.env.NODE_ENV === 'production') {
+    return null;
+  }
+  if (getActiveProviderName() === 'mock') {
+    return mockAuth.getMockHeaders();
+  }
+  return null;
+});
+
+// Auth state listeners collection
+const authListeners = new Set();
+export const notifyAuthChange = (user) => {
+  authListeners.forEach((fn) => {
+    try {
+      fn(user);
+    } catch (e) {
+      console.error('Error in auth state listener', e);
+    }
+  });
+};
+
+/**
+ * Register auth state listener
+ */
+export const onAuthStateChanged = (callback) => {
+  authListeners.add(callback);
+  // Emit current state immediately
+  getCurrentUser().then(callback).catch(() => callback(null));
+
+  return () => {
+    authListeners.delete(callback);
+  };
+};
+
+/**
+ * Register a new user
+ * Strictly enforces 'student' role. Public registrations cannot assign club or admin roles.
+ */
+export async function registerUser(email, password, name, regNo = '', role = 'student') {
+  const provider = getProvider();
+  // Role is always forced to student for security
+  const result = await provider.signUp(email, password, name, regNo);
+  const user = result.user || result;
+  notifyAuthChange(user);
+  return user;
 }
 
 /**
- * Login user with email and password
- * @param {string} email - User email
- * @param {string} password - User password
- * @returns {Promise<{uid, email, role}>}
+ * Login user
  */
 export async function loginUser(email, password) {
-  try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const { uid, email: userEmail } = userCredential.user;
-
-    // Fetch user role from Firestore
-    const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, uid));
-    if (!userDoc.exists()) {
-      throw new Error('User profile not found');
-    }
-
-    const { role, name } = userDoc.data();
-
-    return {
-      uid,
-      email: userEmail,
-      name,
-      role,
-    };
-  } catch (error) {
-    console.error('Login error:', error);
-    const errorCode = error.code || error.message;
-    const errorMsg = getFirebaseErrorMessage(errorCode);
-    throw new Error(errorMsg);
+  const provider = getProvider();
+  let user;
+  if (provider === firebaseAuth) {
+    user = await provider.loginUser(email, password);
+  } else {
+    user = await provider.signIn(email, password);
   }
+  notifyAuthChange(user);
+  return user;
 }
 
 /**
  * Logout current user
- * @returns {Promise<void>}
  */
 export async function logoutUser() {
-  try {
-    await signOut(auth);
-  } catch (error) {
-    throw new Error(error.message);
+  const provider = getProvider();
+  if (provider === firebaseAuth) {
+    await provider.logoutUser();
+  } else {
+    await provider.signOut();
   }
+  notifyAuthChange(null);
 }
 
 /**
- * Get current user data
- * @returns {Promise<{uid, email, role} | null>}
+ * Get current authenticated user
  */
 export async function getCurrentUser() {
   try {
-    const user = auth.currentUser;
-    if (!user) return null;
-
-    const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, user.uid));
-    if (!userDoc.exists()) return null;
-
-    const { role, name } = userDoc.data();
-
-    return {
-      uid: user.uid,
-      email: user.email,
-      name,
-      role,
-    };
-  } catch (error) {
-    console.error('Error fetching current user:', error);
+    const provider = getProvider();
+    return await provider.getCurrentUser();
+  } catch (err) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('Auth provider error:', err.message);
+    }
     return null;
   }
 }
 
 /**
- * Verify if email exists
- * @param {string} email - User email to check
- * @returns {Promise<boolean>}
- * NOTE: This would require a callable Firebase function in production
+ * Retrieve current JWT ID token
  */
-export async function emailExists(email) {
-  // Placeholder - requires backend Firebase Cloud Function in production
-  return false;
+export async function getIdToken() {
+  const provider = getProvider();
+  if (provider.getIdToken) {
+    return await provider.getIdToken();
+  }
+  return null;
 }
 
 /**
- * Update user's display name
- * @param {string} newName - New display name
- * @returns {Promise<{uid, email, name, role}>}
+ * Update user display name
  */
 export async function updateDisplayName(newName) {
-  try {
-    const user = auth.currentUser;
-    if (!user) {
-      throw new Error('No user logged in');
-    }
-
-    // Update Firebase Auth profile
-    await updateProfile(user, { displayName: newName });
-
-    // Update Firestore user document
-    await setDoc(doc(db, COLLECTIONS.USERS, user.uid), {
-      name: newName,
-      updatedAt: new Date(),
-    }, { merge: true });
-
-    // Fetch updated user data
-    const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, user.uid));
-    const { role } = userDoc.data();
-
-    return {
-      uid: user.uid,
-      email: user.email,
-      name: newName,
-      role,
-    };
-  } catch (error) {
-    console.error('Update display name error:', error);
-    const errorCode = error.code || error.message;
-    const errorMsg = getFirebaseErrorMessage(errorCode);
-    throw new Error(errorMsg);
-  }
+  const provider = getProvider();
+  const updated = await provider.updateDisplayName(newName);
+  notifyAuthChange(updated);
+  return updated;
 }
 
 /**
- * Update user's password (requires current password for re-authentication)
- * @param {string} currentPassword - User's current password
- * @param {string} newPassword - New password
- * @returns {Promise<{success: boolean}>}
+ * Update user password
  */
 export async function updateUserPassword(currentPassword, newPassword) {
-  try {
-    const user = auth.currentUser;
-    if (!user) {
-      throw new Error('No user logged in');
-    }
+  const provider = getProvider();
+  return await provider.updateUserPassword(currentPassword, newPassword);
+}
 
-    if (!user.email) {
-      throw new Error('User email not found');
-    }
-
-    // Re-authenticate user before password change
-    const credential = EmailAuthProvider.credential(user.email, currentPassword);
-    await reauthenticateWithCredential(user, credential);
-
-    // Update password
-    await updatePassword(user, newPassword);
-
-    return { success: true };
-  } catch (error) {
-    console.error('Update password error:', error);
-    
-    // Handle specific Firebase error codes
-    if (error.code === 'auth/wrong-password') {
-      throw new Error('Current password is incorrect');
-    } else if (error.code === 'auth/weak-password') {
-      throw new Error('New password must be at least 6 characters');
-    }
-    
-    const errorCode = error.code || error.message;
-    const errorMsg = getFirebaseErrorMessage(errorCode);
-    throw new Error(errorMsg);
+/**
+ * Check if email exists (placeholder)
+ */
+export async function emailExists(email) {
+  const provider = getProvider();
+  if (provider.emailExists) {
+    return await provider.emailExists(email);
   }
+  return false;
 }

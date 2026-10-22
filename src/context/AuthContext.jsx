@@ -1,6 +1,5 @@
 import React, { createContext, useReducer, useEffect, useCallback } from 'react';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { onAuthStateChanged, logoutUser } from '../services/authService';
 
 export const AuthContext = createContext();
 
@@ -18,6 +17,7 @@ function authReducer(state, action) {
       return {
         ...state,
         user: action.payload,
+        role: action.payload ? action.payload.role : null,
         isAuthenticated: !!action.payload,
       };
     case 'SET_ROLE':
@@ -36,7 +36,10 @@ function authReducer(state, action) {
         error: action.payload,
       };
     case 'LOGOUT':
-      return initialState;
+      return {
+        ...initialState,
+        loading: false,
+      };
     default:
       return state;
   }
@@ -44,42 +47,51 @@ function authReducer(state, action) {
 
 export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
-  const auth = getAuth();
-  const db = getFirestore();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        dispatch({ type: 'SET_USER', payload: firebaseUser });
-        
-        // Fetch user data from Firestore to get role
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            dispatch({ type: 'SET_ROLE', payload: userDoc.data().role });
-          }
-        } catch (error) {
-          console.error('Error fetching user data:', error);
-          dispatch({ type: 'SET_ERROR', payload: error.message });
-        }
+    // Subscribe to unified auth provider state changes
+    const unsubscribe = onAuthStateChanged((authUser) => {
+      if (authUser) {
+        // Ensure both uid and userId are present for backward compatibility
+        const normalizedUser = {
+          ...authUser,
+          uid: authUser.uid || authUser.userId,
+          userId: authUser.userId || authUser.uid,
+          displayName: authUser.displayName || authUser.name,
+        };
+        dispatch({ type: 'SET_USER', payload: normalizedUser });
       } else {
         dispatch({ type: 'SET_USER', payload: null });
-        dispatch({ type: 'SET_ROLE', payload: null });
       }
       dispatch({ type: 'SET_LOADING', payload: false });
     });
 
-    return unsubscribe;
-  }, [auth, db]);
+    // Handle 401 session expiry events dispatched by apiClient
+    const handleSessionExpired = () => {
+      logoutUser().catch(() => {});
+      dispatch({ type: 'LOGOUT' });
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('campuspulse:session-expired', handleSessionExpired);
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('campuspulse:session-expired', handleSessionExpired);
+      }
+    };
+  }, []);
 
   const logout = useCallback(async () => {
     try {
-      await auth.signOut();
+      await logoutUser();
       dispatch({ type: 'LOGOUT' });
     } catch (error) {
       dispatch({ type: 'SET_ERROR', payload: error.message });
     }
-  }, [auth]);
+  }, []);
 
   const value = {
     ...state,

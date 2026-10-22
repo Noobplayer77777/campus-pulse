@@ -85,7 +85,7 @@ export default function AuthPage() {
           {/* Footer Info */}
           <div className="mt-8 text-center text-on-surface-variant text-sm">
             <p className="mb-2">For admins and club accounts, please contact the administration office</p>
-            <p className="text-xs opacity-70">Your data is secure and encrypted with Firebase</p>
+            <p className="text-xs opacity-70">Your data is secure and encrypted with AWS</p>
           </div>
         </div>
       </div>

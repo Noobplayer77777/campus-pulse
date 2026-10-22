@@ -1,0 +1,10 @@
+# AWS SAM Packaging Ignore
+node_modules/
+build/
+coverage/
+.git/
+.vscode/
+tests/
+*.log
+.env
+.env.*

@@ -6,10 +6,8 @@
 // Use function instead of constant to allow runtime env var changes (for testing)
 const getAPIKey = () => process.env.REACT_APP_GOOGLE_CALENDAR_API_KEY;
 const getClientId = () => process.env.REACT_APP_GOOGLE_CLIENT_ID;
-const getClientSecret = () => process.env.REACT_APP_GOOGLE_CLIENT_SECRET;
 const CALENDAR_API_URL = 'https://www.googleapis.com/calendar/v3';
 const OAUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 // Store for OAuth token (in production, use secure storage)
 let cachedAccessToken = null;
@@ -22,8 +20,8 @@ export const initializeGoogleCalendar = () => {
   const clientId = getClientId();
   const redirectUri = `${window.location.origin}/oauth-callback`;
   
-  if (!clientId) {
-    console.error('Google Client ID not configured');
+  if (!clientId || clientId.includes('PLACEHOLDER') || clientId.includes('TODO')) {
+    console.warn('Google Client ID is not configured. Google Calendar integration is disabled.');
     return;
   }
 
@@ -39,51 +37,47 @@ export const initializeGoogleCalendar = () => {
 
 /**
  * Exchange authorization code for access token
+ * Security: Confidential client secrets must NEVER be stored in or sent from browser code.
+ * In a secure cloud architecture, token exchange is handled by a trusted backend endpoint.
  * @param {string} authCode - Authorization code from OAuth callback
  * @returns {Promise<string>} Access token
  */
 export const exchangeCodeForToken = async (authCode) => {
   const clientId = getClientId();
-  const clientSecret = getClientSecret();
-  const redirectUri = `${window.location.origin}/oauth-callback`;
 
-  if (!clientId || !clientSecret) {
-    throw new Error('Google OAuth credentials not configured');
+  if (!clientId || clientId.includes('PLACEHOLDER')) {
+    throw new Error('Google Calendar OAuth is disabled: Google Client ID is not configured.');
   }
 
-  try {
-    const response = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: new URLSearchParams({
-        code: authCode,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code'
-      })
-    });
+  // Check if a server-side token exchange endpoint is configured
+  const backendBaseUrl = process.env.REACT_APP_API_BASE_URL || '';
+  if (backendBaseUrl) {
+    try {
+      const response = await fetch(`${backendBaseUrl.replace(/\/+$/, '')}/api/auth/google/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: authCode,
+          redirectUri: `${window.location.origin}/oauth-callback`,
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`Token exchange failed: ${response.status}`);
+      if (response.ok) {
+        const data = await response.json();
+        cachedAccessToken = data.access_token;
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('google_calendar_token', data.access_token);
+        }
+        return data.access_token;
+      }
+    } catch {
+      // Backend token endpoint not deployed yet
     }
-
-    const data = await response.json();
-    cachedAccessToken = data.access_token;
-    
-    // Store token (with expiration)
-    sessionStorage.setItem('google_calendar_token', data.access_token);
-    if (data.refresh_token) {
-      localStorage.setItem('google_calendar_refresh_token', data.refresh_token);
-    }
-
-    return data.access_token;
-  } catch (error) {
-    console.error('Error exchanging auth code for token:', error);
-    throw error;
   }
+
+  throw new Error(
+    'OAuth token exchange requires a trusted server-side endpoint. Client secrets cannot be safely embedded in browser single-page applications.'
+  );
 };
 
 /**
@@ -389,8 +383,11 @@ export const getCalendarEvent = async (eventId, calendarId = 'primary') => {
  * @returns {boolean} API key present
  */
 export const isCalendarConfigured = () => {
-  // Check runtime environment variable instead of cached constant for test compatibility
-  return !!process.env.REACT_APP_GOOGLE_CALENDAR_API_KEY;
+  const key = process.env.REACT_APP_GOOGLE_CALENDAR_API_KEY;
+  if (!key || key.includes('PLACEHOLDER') || key.includes('YOUR_') || key.includes('TODO')) {
+    return false;
+  }
+  return true;
 };
 
 export default {

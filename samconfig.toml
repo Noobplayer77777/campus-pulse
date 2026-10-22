@@ -1,0 +1,14 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "campus-pulse-prod"
+capabilities = ["CAPABILITY_IAM"]
+resolve_s3 = true
+confirm_changeset = false
+no_progressbar = true
+
+[default.deploy.parameters.parameter_overrides]
+Environment = "production"
+
+[default.global.parameters]
+region = "us-east-1"

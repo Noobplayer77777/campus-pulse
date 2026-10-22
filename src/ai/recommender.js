@@ -7,6 +7,8 @@
 import { db } from '../firebase/config';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import aiConfig from './aiConfig';
+import * as eventsService from '../services/eventsService';
+import * as registrationsService from '../services/registrationsService';
 
 class RecommendationEngine {
   /**
@@ -63,12 +65,15 @@ class RecommendationEngine {
   }
 
   /**
-   * Get user profile from Firestore
+   * Get user profile
    * @param {string} userId - User ID
    * @returns {Promise<Object>} - User profile data
    */
   async getUserProfile(userId) {
     try {
+      if ((process.env.REACT_APP_DATA_PROVIDER || 'aws').toLowerCase() === 'aws') {
+        return { userId, preferences: [] };
+      }
       const userRef = doc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
       return userSnap.exists() ? userSnap.data() : null;
@@ -85,6 +90,10 @@ class RecommendationEngine {
    */
   async getUserEventHistory(userId) {
     try {
+      if ((process.env.REACT_APP_DATA_PROVIDER || 'aws').toLowerCase() === 'aws') {
+        const list = await registrationsService.getUserRegistrations(userId);
+        return (list || []).map((r) => ({ id: r.eventId, eventId: r.eventId, ...r }));
+      }
       const q = query(
         collection(db, 'registrations'),
         where('userId', '==', userId)
@@ -103,6 +112,10 @@ class RecommendationEngine {
    */
   async getAllEvents() {
     try {
+      if ((process.env.REACT_APP_DATA_PROVIDER || 'aws').toLowerCase() === 'aws') {
+        const events = await eventsService.getEvents({ status: 'approved', dateRange: 'future' });
+        return (events || []).map((e) => ({ id: e.eventId, eventId: e.eventId, ...e }));
+      }
       const q = query(
         collection(db, 'events'),
         where('status', '==', 'approved'),
@@ -325,14 +338,21 @@ class RecommendationEngine {
    */
   async getSimilarEvents(eventId, limit = 5) {
     try {
-      const referenceEventRef = doc(db, 'events', eventId);
-      const referenceEventSnap = await getDoc(referenceEventRef);
+      let referenceEvent = null;
+      if ((process.env.REACT_APP_DATA_PROVIDER || 'aws').toLowerCase() === 'aws') {
+        referenceEvent = await eventsService.getEventById(eventId);
+      } else {
+        const referenceEventRef = doc(db, 'events', eventId);
+        const referenceEventSnap = await getDoc(referenceEventRef);
+        if (referenceEventSnap.exists()) {
+          referenceEvent = referenceEventSnap.data();
+        }
+      }
 
-      if (!referenceEventSnap.exists()) {
+      if (!referenceEvent) {
         throw new Error('Reference event not found');
       }
 
-      const referenceEvent = referenceEventSnap.data();
       const allEvents = await this.getAllEvents();
 
       const similarEvents = allEvents

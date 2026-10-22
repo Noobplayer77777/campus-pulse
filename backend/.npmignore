@@ -1,0 +1,4 @@
+# Omit test suites and mock infrastructure from AWS Lambda production package
+tests/
+*.test.js
+.DS_Store

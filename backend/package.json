@@ -1,0 +1,24 @@
+{
+  "name": "campuspulse-backend",
+  "version": "1.0.0",
+  "description": "Campus Pulse serverless backend for AWS Lambda and API Gateway HTTP API",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node tests/test-runner.js"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "dynamodb",
+    "cognito",
+    "api-gateway"
+  ],
+  "author": "Campus Pulse Engineering",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.750.0",
+    "@aws-sdk/lib-dynamodb": "^3.750.0",
+    "@aws-sdk/util-dynamodb": "^3.750.0"
+  }
+}

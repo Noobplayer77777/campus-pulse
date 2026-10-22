@@ -5,8 +5,8 @@
 
 class AIConfig {
   constructor() {
-    this.openaiKey = process.env.REACT_APP_OPENAI_KEY;
-    this.geminiKey = process.env.REACT_APP_GEMINI_KEY;
+    this.openaiKey = process.env.REACT_APP_OPENAI_KEY || '';
+    this.geminiKey = process.env.REACT_APP_GEMINI_KEY || process.env.REACT_APP_GEMINI_API_KEY || '';
     this.aiProvider = process.env.REACT_APP_AI_PROVIDER || 'openai'; // 'openai' or 'gemini'
     
     // Rate limiting configuration
@@ -71,10 +71,20 @@ Return top 5 recommended events with reasoning.`
   }
 
   /**
-   * Check if API keys are configured
+   * Check if API keys are configured with valid non-placeholder values
    */
   isConfigured() {
-    return !!(this.openaiKey || this.geminiKey);
+    const key = this.aiProvider === 'gemini' ? this.geminiKey : this.openaiKey;
+    if (!key) return false;
+    if (
+      key.includes('PLACEHOLDER') ||
+      key.includes('YOUR_') ||
+      key.includes('TODO') ||
+      key.length < 10
+    ) {
+      return false;
+    }
+    return true;
   }
 
   /**

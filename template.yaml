@@ -1,0 +1,497 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Campus Pulse - Infrastructure as Code (AWS SAM)
+  Production-grade serverless architecture for college events management:
+  Amazon Cognito, API Gateway HTTP API v2, Node.js AWS Lambda, Amazon DynamoDB,
+  Amazon S3, Amazon CloudFront (OAC), and Amazon EventBridge.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - production
+      - staging
+      - dev
+    Description: Target deployment stage.
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    MemorySize: 512
+    Tracing: Active
+    Architectures:
+      - x86_64
+
+Resources:
+  # ============================================================================
+  # 1. AUTHENTICATION: Amazon Cognito User Pool & Security Groups
+  # ============================================================================
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub 'CampusPulse-UserPool-${Environment}'
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+          RequireUppercase: true
+      Schema:
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub 'CampusPulse-WebClient-${Environment}'
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false # Public Single Page Application (SPA) client - strictly no client secret
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO
+
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: admin
+      UserPoolId: !Ref UserPool
+      Description: Campus Administrators with event approval, location management, and cleanup privileges
+      Precedence: 1
+
+  ClubGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: club
+      UserPoolId: !Ref UserPool
+      Description: Club Representatives with event creation and club profile management privileges
+      Precedence: 5
+
+  StudentGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: student
+      UserPoolId: !Ref UserPool
+      Description: Registered College Students with event registration and feedback privileges
+      Precedence: 10
+
+  # ============================================================================
+  # 2. DATABASE: Amazon DynamoDB Tables (Canonical 5 tables, PAY_PER_REQUEST)
+  # ============================================================================
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CampusPulse-Users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CampusPulse-Events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: eventId
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: clubId
+          AttributeType: S
+        - AttributeName: date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: eventId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GSI_StatusDate
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: date
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI_ClubEvents
+          KeySchema:
+            - AttributeName: clubId
+              KeyType: HASH
+            - AttributeName: date
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  RegistrationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CampusPulse-Registrations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: eventId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: registeredAt
+          AttributeType: S
+        - AttributeName: queuePosition
+          AttributeType: N
+      KeySchema:
+        - AttributeName: eventId
+          KeyType: HASH
+        - AttributeName: userId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI_UserRegistrations
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: registeredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI_Waitlist
+          KeySchema:
+            - AttributeName: eventId
+              KeyType: HASH
+            - AttributeName: queuePosition
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  ClubsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CampusPulse-Clubs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: clubId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: clubId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  LocationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: CampusPulse-Locations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: locationId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: locationId
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # ============================================================================
+  # 3. BACKEND API: Amazon API Gateway HTTP API v2 with Cognito JWT Authorizer
+  # ============================================================================
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub 'CampusPulse-HttpApi-${Environment}'
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Amz-Date
+          - X-Api-Key
+          - X-Amz-Security-Token
+        MaxAge: 600
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            JwtConfiguration:
+              issuer: !Sub 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}'
+              audience:
+                - !Ref UserPoolClient
+            IdentitySource: $request.header.Authorization
+        DefaultAuthorizer: CognitoAuthorizer
+
+  # ============================================================================
+  # 4. COMPUTE: AWS Lambda Backend Function & IAM Execution Role
+  # ============================================================================
+  BackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'CampusPulse-Backend-${Environment}'
+      CodeUri: backend/
+      Handler: index.handler
+      Description: Campus Pulse REST API handler and scheduled EventBridge cleanup
+      Environment:
+        Variables:
+          NODE_ENV: production
+          USERS_TABLE: !Ref UsersTable
+          EVENTS_TABLE: !Ref EventsTable
+          REGISTRATIONS_TABLE: !Ref RegistrationsTable
+          CLUBS_TABLE: !Ref ClubsTable
+          LOCATIONS_TABLE: !Ref LocationsTable
+      Policies:
+        # Least-privilege IAM policy strictly scoped to the 5 declared tables and their GSIs
+        - Statement:
+            - Sid: DynamoDBTableAccess
+              Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - dynamodb:BatchWriteItem
+              Resource:
+                - !GetAtt UsersTable.Arn
+                - !GetAtt EventsTable.Arn
+                - !Sub '${EventsTable.Arn}/index/*'
+                - !GetAtt RegistrationsTable.Arn
+                - !Sub '${RegistrationsTable.Arn}/index/*'
+                - !GetAtt ClubsTable.Arn
+                - !GetAtt LocationsTable.Arn
+            - Sid: CloudWatchLogAccess
+              Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*:*'
+      Events:
+        # --- Public Endpoints (Cognito Authorizer bypassed) ---
+        GetEventsPublic:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/events
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        GetEventByIdPublic:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/events/{eventId}
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        GetClubsPublic:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/clubs
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        GetClubByIdPublic:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/clubs/{clubId}
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        GetLocationsPublic:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/locations
+            Method: GET
+            Auth:
+              Authorizer: NONE
+        GetLocationByIdPublic:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/locations/{locationId}
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
+        # --- Protected Routes Fallback (DefaultAuthorizer: CognitoAuthorizer enforced) ---
+        ProtectedApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+
+        # --- Scheduled Cleanup Invocation via Amazon EventBridge ---
+        NightlyCleanupSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: 'cron(0 2 * * ? *)' # Runs nightly at 02:00 UTC
+            Name: !Sub 'CampusPulse-NightlyCleanup-${Environment}'
+            Description: Daily trigger to prune expired events and cancel stale registrations
+            Enabled: true
+
+  # ============================================================================
+  # 5. FRONTEND HOSTING: Amazon S3 & Amazon CloudFront (OAC)
+  # ============================================================================
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'campuspulse-frontend-${AWS::AccountId}-${AWS::Region}-${Environment}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'CampusPulse-OAC-${Environment}'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipalReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'Campus Pulse Web Application (${Environment})'
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt CloudFrontOAC.Id
+            S3OriginConfig: {}
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # AWS Managed-CachingOptimized policy
+        CustomErrorResponses:
+          # Single Page Application (SPA) client-side routing fallback:
+          # Returns index.html with 200 OK for React Router client paths
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+
+# ==============================================================================
+# OUTPUTS
+# ==============================================================================
+Outputs:
+  ApiUrl:
+    Description: HTTP API endpoint URL for Campus Pulse backend
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com'
+    Export:
+      Name: !Sub 'CampusPulse-${Environment}-ApiUrl'
+
+  UserPoolId:
+    Description: Amazon Cognito User Pool ID
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub 'CampusPulse-${Environment}-UserPoolId'
+
+  UserPoolClientId:
+    Description: Amazon Cognito App Client ID (Public SPA Client)
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub 'CampusPulse-${Environment}-UserPoolClientId'
+
+  FrontendBucketName:
+    Description: S3 Bucket Name for static React build bundle hosting
+    Value: !Ref FrontendBucket
+    Export:
+      Name: !Sub 'CampusPulse-${Environment}-FrontendBucket'
+
+  CloudFrontDomain:
+    Description: CloudFront distribution domain name (Primary HTTPS website URL)
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub 'CampusPulse-${Environment}-CloudFrontDomain'
+
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID for deployment cache invalidations
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub 'CampusPulse-${Environment}-CloudFrontDistributionId'
+
+  BackendFunctionArn:
+    Description: ARN of the backend AWS Lambda compute function
+    Value: !GetAtt BackendFunction.Arn
+    Export:
+      Name: !Sub 'CampusPulse-${Environment}-BackendFunctionArn'
